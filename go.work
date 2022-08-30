@@ -1,0 +1,6 @@
+go 1.19
+
+use (
+    ./
+    ./sam_apps/orders/place-order
+)

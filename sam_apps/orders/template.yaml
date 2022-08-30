@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Test application to prove out lambda 
+
+Globals:
+  Function:
+    Runtime: 'go1.x'
+    Architectures:
+      - x86_64
+    Tags:
+      Version: '0.0.1'
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'LambdaPermissions'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: 'LogAccess'
+                Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*'
+              - Sid: 'SQSAccess'
+                Effect: 'Allow'
+                Action:
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:GetQueueAttributes'
+                Resource:
+                  - !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*'
+              - Sid: 'DynamoDBAccess'
+                Effect: 'Allow'
+                Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:GetItem'
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*'
+
+  OrderTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  OrderDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      DeduplicationScope: queue
+      FifoQueue: true
+      MessageRetentionPeriod: 600
+      QueueName: 'orders-dlq.fifo'
+      VisibilityTimeout: 300
+
+  OrderQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      DeduplicationScope: queue
+      FifoQueue: true
+      MessageRetentionPeriod: 600
+      QueueName: 'orders.fifo'
+      VisibilityTimeout: 600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderDLQ.Arn
+        maxReceiveCount: 3
+
+  OrderHandlerLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./place-order/
+      Handler: place-order
+      Environment:
+        Variables:
+          INPUT_QUEUE_URL: !Ref OrderQueue
+          ORDER_TABLE_NAME: !Ref OrderTable
+      FunctionName: 'order-handler'
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 60
+      Events:
+        OrderQueueEvents:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderQueue.Arn
+            BatchSize: 10
+
+Outputs:
+  LambdaRoleArn:
+    Value: !Ref LambdaRole
+  OrderTableName:
+    Value: !Ref OrderTable
+  OrderQueueUrl:
+    Value: !Ref OrderQueue
