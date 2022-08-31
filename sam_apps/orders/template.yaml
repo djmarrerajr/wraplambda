@@ -81,9 +81,9 @@ Resources:
     Properties:
       DeduplicationScope: queue
       FifoQueue: true
-      MessageRetentionPeriod: 600
+      MessageRetentionPeriod: 60
       QueueName: 'orders.fifo'
-      VisibilityTimeout: 600
+      VisibilityTimeout: 60
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt OrderDLQ.Arn
         maxReceiveCount: 3
@@ -97,6 +97,7 @@ Resources:
         Variables:
           INPUT_QUEUE_URL: !Ref OrderQueue
           ORDER_TABLE_NAME: !Ref OrderTable
+          IDEMPOTENCY_EXPIRATION_DAYS: 10
       FunctionName: 'order-handler'
       MemorySize: 128
       PackageType: Zip
